@@ -1,7 +1,7 @@
 # HR Enterprise SaaS — Fresh Build
 
 نظام SaaS مؤسسي جديد بالكامل مبني وفق المواصفات المعتمدة.
-
+ 
 ## التقنية
 - Cloudflare Workers
 - Cloudflare D1 (SQLite)
