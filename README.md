@@ -1,45 +1,31 @@
-# HR Enterprise SaaS — Fresh Build
+# HR Enterprise — Institutional Release
 
-نظام SaaS مؤسسي جديد بالكامل مبني وفق المواصفات المعتمدة.
+Arabic RTL enterprise HR system built for Cloudflare Workers + D1.
 
-## التقنية
-- Cloudflare Workers
-- Cloudflare D1 (SQLite)
-- Vanilla ES Modules frontend بدون framework ثقيل
-- Arabic RTL
-- REST API
-- Server-side authorization
-- Tenant isolation
-- Migration-based database
+## Included
+- Multi-company tenant scope.
+- Login/session management.
+- Unlimited custom roles and granular permissions with scopes: COMPANY, SELF, MANAGED_EMPLOYEES, ORGANIZATION, ALL.
+- Company scope administration.
+- User administration and role assignment.
+- Organization units and positions.
+- Employee master data with initial salary and GOSI setup.
+- Transaction definitions, transaction simulator, real transaction list.
+- Custom workflow definitions with administrator-named stages and stage owners.
+- Payroll runs with automatic calculation from salary components, additions, deductions and GOSI.
+- Operational reports.
+- Audit log.
+- Arabic RTL interface with the sidebar on the RIGHT.
 
-## مهم
-هذه النسخة هي Foundation جديدة وليست ترقية للمشروع القديم. لا تعتمد على جداول أو منطق المشروع السابق.
+## Existing D1
+This release is configured for the existing database:
+- database name: hr-enterprise
+- database id: 43d377a3-8ba3-47ed-adf7-03ec0097ff40
 
-## التشغيل
-1. ثبّت Node.js 20+.
-2. `npm install`
-3. أنشئ D1:
-   `npx wrangler d1 create hr-enterprise`
-4. ضع `database_id` في `wrangler.toml`.
-5. طبّق migration:
-   `npx wrangler d1 migrations apply hr-enterprise --local`
-6. شغّل:
-   `npm run dev`
+## Deployment
+Upload the contents of this archive to the existing GitHub repository `hr-enterprise`.
+Do not create another D1 database.
+Cloudflare should redeploy the Worker from the repository.
 
-للإنتاج:
-`npx wrangler d1 migrations apply hr-enterprise --remote`
-ثم:
-`npm run deploy`
-
-## بيانات الدخول التطويرية
-بعد تطبيق migration يوجد Tenant تجريبي وحساب Super Admin محلي فقط:
-- Company ID: `DEMO`
-- User ID: `1000000000`
-- Password: `Mm123456`
-
-يجب تغيير كلمة المرور في أول دخول.
-
-> بيانات التطوير معزولة في seed.sql ولا تُستخدم كبيانات إنتاج.
-
-## النطاق
-Attendance والتكاملات الخارجية غير منفذة. النظام API-ready مع حدود تكامل واضحة.
+## Important
+The system is intentionally data-driven. It does not invent attendance or external integrations that were not requested. Those can be added as separate integrations later.

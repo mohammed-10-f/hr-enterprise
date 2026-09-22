@@ -1,91 +1,102 @@
 
-const state = { token: localStorage.getItem('hr_token'), me:null };
-
-const $ = id => document.getElementById(id);
-async function api(path, options={}) {
-  const headers = {'content-type':'application/json', ...(options.headers||{})};
-  if (state.token) headers.Authorization = `Bearer ${state.token}`;
-  const res = await fetch(path,{...options,headers});
-  const data = await res.json().catch(()=>({}));
-  if (!res.ok) throw new Error(data.error || 'تعذر تنفيذ العملية');
-  return data;
+const state={token:localStorage.getItem('hr_token'),me:null};
+const $=id=>document.getElementById(id);
+async function api(path,options={}){const headers={'content-type':'application/json',...(options.headers||{})};if(state.token)headers.Authorization=`Bearer ${state.token}`;const r=await fetch(path,{...options,headers});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'تعذر تنفيذ العملية');return d}
+const has=p=>state.me?.permissions?.some(x=>x.code===p);
+const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const titles={dashboard:'لوحة التحكم',employees:'الموظفون',organization:'الهيكل التنظيمي',transactions:'المعاملات',payroll:'الرواتب',reports:'التقارير',companies:'نطاق الشركات',users:'المستخدمون',roles:'الأدوار والصلاحيات',settings:'إعدادات النظام',trxTypes:'قائمة المعاملات المنشأة',workflows:'مسارات العمل',audit:'سجل التدقيق'};
+function showLogin(){$('login').classList.remove('hidden');$('shell').classList.add('hidden')}
+function showShell(){$('login').classList.add('hidden');$('shell').classList.remove('hidden');$('tenantName').textContent=`${state.me.tenant.name} · ${state.me.tenant.identifier}`;$('userBadge').textContent=state.me.user.identifier;$('roleBadge').textContent=state.me.roles?.map(r=>r.name_ar).join('، ')||'';buildNav()}
+function buildNav(){
+  const groups=[
+    ['الرئيسية',[['dashboard','لوحة التحكم','dashboard.view']]],
+    ['الموارد البشرية',[['employees','الموظفون','employees.view'],['organization','الهيكل التنظيمي','organization.view'],['transactions','المعاملات','transactions.view'],['payroll','الرواتب','payroll.view'],['reports','التقارير','reports.view']]],
+    ['الإدارة',[['companies','نطاق الشركات','roles.manage'],['users','المستخدمون','users.manage'],['roles','الأدوار والصلاحيات','roles.manage'],['settings','إعدادات النظام','roles.manage'],['trxTypes','قائمة المعاملات المنشأة','transactions.create'],['workflows','مسارات العمل','workflows.view'],['audit','سجل التدقيق','audit.view']]]
+  ];
+  $('nav').innerHTML=groups.map(([g,items])=>{const vis=items.filter(x=>has(x[2]));return vis.length?`<div class="nav-group"><div class="nav-title">${g}</div>${vis.map(x=>`<button data-page="${x[0]}">${x[1]}</button>`).join('')}</div>`:''}).join('');
+  document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>loadPage(b.dataset.page));
 }
-
-async function boot(){
-  if(!state.token){showLogin();return;}
-  try{
-    state.me=await api('/api/me');
-    showShell();
-    loadPage('dashboard');
-  }catch(e){localStorage.removeItem('hr_token');state.token=null;showLogin();}
-}
-
-function showLogin(){
-  $('login').classList.remove('hidden');$('shell').classList.add('hidden');
-}
-function showShell(){
-  $('login').classList.add('hidden');$('shell').classList.remove('hidden');
-  $('tenantName').textContent=state.me.tenant.name;
-  $('userBadge').textContent=state.me.user.identifier;
-}
-
-$('loginForm').addEventListener('submit',async e=>{
-  e.preventDefault();$('loginError').textContent='';
-  try{
-    const r=await api('/api/auth/login',{method:'POST',body:JSON.stringify({
-      companyIdentifier:$('companyIdentifier').value,
-      userIdentifier:$('userIdentifier').value,
-      password:$('password').value
-    })});
-    state.token=r.token;localStorage.setItem('hr_token',r.token);
-    state.me=await api('/api/me');showShell();loadPage('dashboard');
-  }catch(err){$('loginError').textContent=err.message;}
-});
+async function boot(){if(!state.token)return showLogin();try{state.me=await api('/api/me');showShell();loadPage('dashboard')}catch{localStorage.removeItem('hr_token');state.token=null;showLogin()}}
+$('loginForm').addEventListener('submit',async e=>{e.preventDefault();$('loginError').textContent='';try{const r=await api('/api/auth/login',{method:'POST',body:JSON.stringify({companyIdentifier:$('companyIdentifier').value,userIdentifier:$('userIdentifier').value,password:$('password').value})});state.token=r.token;localStorage.setItem('hr_token',r.token);state.me=await api('/api/me');showShell();loadPage('dashboard')}catch(e){$('loginError').textContent=e.message}});
 $('logout').onclick=async()=>{try{await api('/api/auth/logout',{method:'POST'})}finally{localStorage.removeItem('hr_token');location.reload()}};
-
-document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>loadPage(b.dataset.page));
-
-async function loadPage(page){
-  document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
-  const titles={dashboard:'لوحة التحكم',employees:'الموظفون',organization:'الهيكل التنظيمي',transactions:'المعاملات',payroll:'الرواتب',reports:'التقارير',administration:'الإدارة'};
-  $('pageTitle').textContent=titles[page]||'';
-  const handlers={dashboard:dashboard,employees:employees,organization:organization,transactions:transactions,payroll:placeholder,reports:placeholder,administration:placeholder};
-  try{await handlers[page]()}catch(e){$('content').innerHTML=`<div class="card error">${e.message}</div>`}
-}
+async function loadPage(page){document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('pageTitle').textContent=titles[page]||'';try{await ({dashboard,employees,organization,transactions,payroll,reports,companies,users,roles,settings,trxTypes,workflows,audit}[page]||dashboard)()}catch(e){$('content').innerHTML=`<div class="card error-box">${esc(e.message)}</div>`}}
+function pageHead(title,desc,button=''){return `<div class="page-head"><div><h2>${title}</h2><p>${desc}</p></div>${button}</div>`}
 
 async function dashboard(){
   const d=await api('/api/dashboard');
-  $('content').innerHTML=`
-    <div class="grid">
-      <div class="card"><div class="label">الموظفون</div><div class="value">${d.cards.employees}</div></div>
-      <div class="card"><div class="label">المعاملات قيد الإجراء</div><div class="value">${d.cards.pendingTransactions}</div></div>
-      <div class="card"><div class="label">الوحدات التنظيمية</div><div class="value">${d.cards.organizationNodes}</div></div>
-      <div class="card"><div class="label">حالة النظام</div><div class="value">نشط</div></div>
-    </div>
-    <div class="section"><h2>مساحة العمل</h2><div class="card">لوحة التحكم تعرض فقط مؤشرات مسموحة للمستخدم. الوظائف التشغيلية موجودة داخل صفحاتها وليست داخل Dashboard.</div></div>`;
+  $('content').innerHTML=`<div class="hero"><div><div class="eyebrow">مساحة العمل المؤسسية</div><h1>مرحبًا بك في HR Enterprise</h1><p>منصة موحدة لإدارة الموظفين والهيكل التنظيمي والمعاملات والرواتب والصلاحيات.</p></div><div class="hero-badge">${state.me.roles.map(r=>r.name_ar).join(' · ')}</div></div>
+  <div class="grid stat-grid"><div class="card stat"><span>الموظفون</span><strong>${d.cards.employees}</strong></div><div class="card stat"><span>المعاملات قيد الإجراء</span><strong>${d.cards.pendingTransactions}</strong></div><div class="card stat"><span>الوحدات التنظيمية</span><strong>${d.cards.organizationNodes}</strong></div><div class="card stat"><span>المستخدمون</span><strong>${d.cards.users}</strong></div><div class="card stat"><span>أنواع المعاملات</span><strong>${d.cards.transactionTypes}</strong></div></div>
+  <div class="section"><h2>صلاحيات حسابك</h2><div class="chips">${state.me.permissions.map(p=>`<span class="chip">${esc(p.name_ar)} <small>${esc(p.scope_type)}</small></span>`).join('')}</div></div>
+  <div class="grid quick"><div class="card"><h3>دورة حياة الموظف</h3><p>البيانات الأساسية، الوظيفة، الوحدة التنظيمية، العقد، التجربة والراتب ضمن ملف الموظف.</p></div><div class="card"><h3>المعاملات</h3><p>تعريف أنواع المعاملات ثم بناء المسار والمراحل والأسئلة والإجراءات حسب احتياج المنشأة.</p></div><div class="card"><h3>الرواتب</h3><p>احتساب الأساسي والبدلات والإضافات والخصومات وGOSI وصافي الراتب من البيانات المدخلة.</p></div></div>`;
 }
 
 async function employees(){
-  $('content').innerHTML=`<div class="toolbar"><input id="empQ" placeholder="بحث برقم الموظف أو الهوية أو الاسم"><button id="empSearch">بحث</button></div><div class="table-wrap"><table><thead><tr><th>الرقم</th><th>الاسم</th><th>الهوية</th><th>الوظيفة</th><th>الحالة</th><th>المباشرة</th></tr></thead><tbody id="empRows"></tbody></table></div>`;
-  const run=async()=>{const d=await api('/api/employees?q='+encodeURIComponent($('empQ').value));$('empRows').innerHTML=d.results.map(e=>`<tr><td>${e.employee_number}</td><td>${[e.first_name,e.father_name,e.family_name].filter(Boolean).join(' ')}</td><td>${e.id_number}</td><td>${e.position_name||e.job_title||'-'}</td><td><span class="badge">${e.employee_status}</span></td><td>${e.join_date}</td></tr>`).join('')||'<tr><td colspan="6">لا توجد بيانات</td></tr>'};
-  $('empSearch').onclick=run; await run();
+  $('content').innerHTML=pageHead('الموظفون','سجل الموظفين والبيانات الوظيفية والراتبية.',has('employees.create')?'<button id="addEmp">إضافة موظف</button>':'')+
+  `<div class="toolbar"><input id="empQ" placeholder="بحث بالرقم الوظيفي أو الهوية أو الاسم"><button id="empSearch">بحث</button></div><div class="table-wrap"><table><thead><tr><th>الرقم</th><th>الاسم</th><th>الهوية</th><th>الوظيفة</th><th>الوحدة</th><th>الحالة</th><th>المباشرة</th></tr></thead><tbody id="empRows"></tbody></table></div>`;
+  if(has('employees.create'))$('addEmp').onclick=employeeForm;
+  const run=async()=>{const d=await api('/api/employees?q='+encodeURIComponent($('empQ').value));$('empRows').innerHTML=d.results.map(e=>`<tr><td>${esc(e.employee_number)}</td><td>${esc([e.first_name,e.father_name,e.family_name].filter(Boolean).join(' '))}</td><td>${esc(e.id_number)}</td><td>${esc(e.position_name||e.job_title||'-')}</td><td>${esc(e.organization_name||'-')}</td><td>${esc(e.employee_status)}</td><td>${esc(e.join_date)}</td></tr>`).join('')||'<tr><td colspan="7">لا توجد بيانات</td></tr>'};$('empSearch').onclick=run;await run()
 }
-
+async function employeeForm(){
+  const [org,pos]=await Promise.all([api('/api/organization/tree'),api('/api/positions')]);
+  const modal=makeModal('إضافة موظف',`<form id="empForm" class="form-grid">
+  <label>الرقم الوظيفي<input name="employee_number" required></label><label>الاسم الأول<input name="first_name" required></label>
+  <label>اسم الأب<input name="father_name"></label><label>اسم العائلة<input name="family_name"></label>
+  <label>نوع الهوية<select name="identity_type"><option>هوية وطنية</option><option>إقامة</option><option>جواز</option></select></label><label>رقم الهوية<input name="id_number" required></label>
+  <label>الجنسية<input name="nationality" value="سعودي"></label><label>تاريخ الميلاد<input name="birth_date" type="date"></label>
+  <label>الجوال<input name="mobile"></label><label>البريد الإلكتروني<input name="email" type="email"></label>
+  <label>تاريخ المباشرة<input name="join_date" type="date" required></label><label>المسمى الوظيفي<input name="job_title"></label>
+  <label>الوظيفة التنظيمية<select name="position_id"><option value="">—</option>${pos.results.map(x=>`<option value="${x.id}">${esc(x.title_ar)}</option>`).join('')}</select></label>
+  <label>الوحدة التنظيمية<select name="organization_node_id"><option value="">—</option>${org.results.map(x=>`<option value="${x.id}">${esc(x.name_ar)}</option>`).join('')}</select></label>
+  <label>البنك<input name="bank_name"></label><label>IBAN<input name="iban"></label>
+  <div class="subsection"><h3>الراتب الابتدائي</h3><div class="form-grid"><label>الأساسي<input name="basic_salary" type="number" min="0" step="0.01" value="0"></label><label>بدل السكن<input name="housing_allowance" type="number" min="0" step="0.01" value="0"></label><label>بدل النقل<input name="transport_allowance" type="number" min="0" step="0.01" value="0"></label></div></div>
+  <label class="check"><input name="gosi_deduct" type="checkbox" value="1"> خصم GOSI</label><label>نسبة GOSI<input name="gosi_rate" type="number" step="0.01" value="9.75"></label>
+  <button>حفظ الموظف</button></form>`);
+  $('empForm').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));await api('/api/employees',{method:'POST',body:JSON.stringify(b)});modal.remove();employees()}
+}
 async function organization(){
-  const d=await api('/api/organization/tree');
-  const map=new Map(d.results.map(n=>[n.id,{...n,children:[]}]));
-  d.results.forEach(n=>{if(n.parent_id&&map.has(n.parent_id))map.get(n.parent_id).children.push(map.get(n.id))});
-  const roots=d.results.filter(n=>!n.parent_id).map(n=>map.get(n.id));
-  const render=n=>`<div class="node"><strong>${n.name_ar}</strong> <span class="badge">${n.node_type}</span>${n.children.map(c=>`<div class="child">${render(c)}</div>`).join('')}</div>`;
-  $('content').innerHTML=`<div class="card"><h2>الهيكل التنظيمي</h2><div class="tree">${roots.map(render).join('')||'لا توجد وحدات تنظيمية بعد'}</div></div>`;
+  const [d,pos]=await Promise.all([api('/api/organization/tree'),api('/api/positions')]);
+  $('content').innerHTML=pageHead('الهيكل التنظيمي','إدارة الإدارات والأقسام والفروع والمستويات التنظيمية.',has('organization.manage')?'<button id="addOrg">إضافة وحدة</button>':'')+
+  `<div class="split"><div class="card"><h3>الوحدات التنظيمية</h3><div id="orgArea" class="tree"></div></div><div class="card"><div class="page-head"><h3>الوظائف</h3>${has('organization.manage')?'<button id="addPos">إضافة وظيفة</button>':''}</div><div class="table-wrap compact"><table><thead><tr><th>المسمى</th><th>الوحدة</th><th>الرمز</th></tr></thead><tbody>${pos.results.map(x=>`<tr><td>${esc(x.title_ar)}</td><td>${esc(x.organization_name||'-')}</td><td>${esc(x.code||'-')}</td></tr>`).join('')||'<tr><td colspan="3">لا توجد وظائف</td></tr>'}</tbody></table></div></div></div>`;
+  if(has('organization.manage')){$('addOrg').onclick=orgForm;$('addPos').onclick=positionForm}
+  const map=new Map(d.results.map(n=>[n.id,{...n,children:[]} ]));d.results.forEach(n=>{if(n.parent_id&&map.has(n.parent_id))map.get(n.parent_id).children.push(map.get(n.id))});const roots=d.results.filter(n=>!n.parent_id).map(n=>map.get(n.id));
+  const render=n=>`<div class="node"><div class="node-title"><strong>${esc(n.name_ar)}</strong><span class="badge">${esc(n.node_type)}</span></div>${n.children.map(c=>`<div class="child">${render(c)}</div>`).join('')}</div>`;
+  $('orgArea').innerHTML=roots.map(render).join('')||'<div class="empty">لا توجد وحدات تنظيمية بعد</div>';
 }
+function orgForm(){const modal=makeModal('إضافة وحدة تنظيمية',`<form id="orgForm" class="form-grid"><label>اسم الوحدة بالعربي<input name="name_ar" required></label><label>الاسم بالإنجليزية<input name="name_en"></label><label>نوع الوحدة<input name="node_type" placeholder="إدارة / قسم / فرع" required></label><label>الترتيب<input name="sort_order" type="number" value="0"></label><button>حفظ</button></form>`);$('orgForm').onsubmit=async e=>{e.preventDefault();await api('/api/organization/nodes',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});modal.remove();organization()}}
+function positionForm(){const modal=makeModal('إضافة وظيفة',`<form id="posForm" class="form-grid"><label>المسمى العربي<input name="title_ar" required></label><label>المسمى الإنجليزي<input name="title_en"></label><label>الرمز<input name="code"></label><button>حفظ</button></form>`);$('posForm').onsubmit=async e=>{e.preventDefault();await api('/api/positions',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});modal.remove();organization()}}
 
 async function transactions(){
-  $('content').innerHTML=`<div class="toolbar"><input id="trxNo" inputmode="numeric" placeholder="رقم المعاملة فقط"><button id="trxSearch">بحث</button></div><div id="trxResult"></div>`;
-  $('trxSearch').onclick=async()=>{try{const d=await api('/api/transactions?number='+encodeURIComponent($('trxNo').value));$('trxResult').innerHTML=d.result?`<div class="card"><h2>معاملة رقم ${d.result.transaction_number}</h2><p>النوع: ${d.result.transaction_type_name}</p><p>الحالة: <span class="badge">${d.result.status}</span></p></div>`:'<div class="card">لم يتم العثور على المعاملة</div>'}catch(e){$('trxResult').innerHTML=`<div class="card error">${e.message}</div>`}};
+  const types=await api('/api/admin/transactions/types').catch(()=>({results:[]}));
+  $('content').innerHTML=pageHead('المعاملات','محاكي المعاملة وقائمة المعاملات الفعلية ومساراتها.',has('transactions.create')?'<button id="simulate">محاكي معاملة</button>':'')+
+  `<div class="tabs"><button class="tab active" data-tab="list">قائمة المعاملات</button><button class="tab" data-tab="sim">محاكي المعاملة</button></div><div id="txBody"></div>`;
+  const list=async()=>{const d=await api('/api/transactions/list');$('txBody').innerHTML=`<div class="toolbar"><select id="txStatus"><option value="">كل الحالات</option><option>قيد الإجراء</option><option>مكتملة</option><option>مرفوضة</option><option>ملغية</option></select><button id="txRefresh">تحديث</button></div><div class="table-wrap"><table><thead><tr><th>الرقم</th><th>النوع</th><th>الموظف</th><th>المسار</th><th>المرحلة</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>${d.results.map(x=>`<tr><td>${x.transaction_number}</td><td>${esc(x.transaction_type_name)}</td><td>${esc([x.employee_number,x.first_name,x.family_name].filter(Boolean).join(' '))}</td><td>${esc(x.workflow_name||'-')}</td><td>${esc(x.stage_name||'-')}</td><td>${esc(x.status)}</td><td>${esc(x.created_at)}</td></tr>`).join('')||'<tr><td colspan="7">لا توجد معاملات</td></tr>'}</tbody></table></div>`};
+  const sim=async()=>{$('txBody').innerHTML=`<div class="card"><h3>محاكي المعاملة</h3><p class="muted">اختر نوع المعاملة والموظف ثم نفّذ الإنشاء. المسار الفعال سيحدد المرحلة الأولى تلقائيًا.</p><form id="simForm" class="form-grid"><label>نوع المعاملة<select name="transaction_type_id" required>${types.results.map(x=>`<option value="${x.id}">${esc(x.name_ar)}</option>`).join('')}</select></label><label>رقم الموظف<input name="employee_id" placeholder="معرف الموظف الداخلي"></label><label>وصف / بيانات المعاملة<textarea name="description" rows="4"></textarea></label><button>إنشاء المعاملة</button></form></div>`;$('simForm').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));const r=await api('/api/transactions/create',{method:'POST',body:JSON.stringify({transaction_type_id:b.transaction_type_id,employee_id:b.employee_id||null,payload:{description:b.description}})});$('txBody').insertAdjacentHTML('afterbegin',`<div class="success-box">تم إنشاء المعاملة رقم <strong>${r.transaction_number}</strong></div>`)}};
+  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');b.dataset.tab==='list'?list():sim()});await list();
 }
-
-async function placeholder(){
-  $('content').innerHTML=`<div class="card"><h2>الوحدة ضمن البنية الجديدة</h2><p>تم إنشاء قاعدة البيانات والحدود المعمارية لهذه الوحدة. لن يتم وضع شاشة وهمية أو وظيفة Mock مكان منطق الأعمال الحقيقي.</p></div>`;
+async function payroll(){
+  const d=await api('/api/payroll/runs');
+  $('content').innerHTML=pageHead('الرواتب','إدارة دورات الرواتب والاحتساب التلقائي من مكونات الموظف وGOSI.',has('payroll.run')?'<button id="newRun">فتح دورة رواتب</button>':'')+
+  `<div class="grid payroll-summary"><div class="card"><h3>منهج الاحتساب</h3><p>الأساسي + البدلات + الإضافات − الخصومات − GOSI حسب إعداد الموظف.</p></div><div class="card"><h3>الدورات</h3><strong>${d.results.length}</strong><p>دورة مسجلة</p></div></div>
+  <div class="table-wrap"><table><thead><tr><th>الشهر</th><th>الحالة</th><th>الموظفون</th><th>الإجمالي</th><th>الخصومات</th><th>الصافي</th><th>إجراء</th></tr></thead><tbody>${d.results.map(x=>`<tr><td>${esc(x.payroll_month)}</td><td>${esc(x.status)}</td><td>${x.employee_count||0}</td><td>${Number(x.gross_total||0).toFixed(2)}</td><td>${Number(x.deductions_total||0).toFixed(2)}</td><td><strong>${Number(x.net_total||0).toFixed(2)}</strong></td><td><button class="small-btn" data-run="${x.id}">عرض التفاصيل</button>${has('payroll.run')?`<button class="small-btn calc" data-calc="${x.id}">إعادة احتساب</button>`:''}</td></tr>`).join('')||'<tr><td colspan="7">لا توجد دورات رواتب</td></tr>'}</tbody></table></div>`;
+  if(has('payroll.run'))$('newRun').onclick=payrollRunForm;
+  document.querySelectorAll('[data-run]').forEach(b=>b.onclick=()=>payrollItems(b.dataset.run));
+  document.querySelectorAll('[data-calc]').forEach(b=>b.onclick=async()=>{await api('/api/payroll/runs/calculate',{method:'POST',body:JSON.stringify({run_id:b.dataset.calc})});payroll()});
 }
+function payrollRunForm(){const modal=makeModal('فتح دورة رواتب',`<form id="runForm"><label>شهر الرواتب<input name="payroll_month" type="month" required></label><button>فتح الدورة</button></form>`);$('runForm').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));const r=await api('/api/payroll/runs',{method:'POST',body:JSON.stringify(b)});await api('/api/payroll/runs/calculate',{method:'POST',body:JSON.stringify({run_id:r.id})});modal.remove();payroll()}}
+async function payrollItems(id){const d=await api('/api/payroll/runs/items?run_id='+encodeURIComponent(id));const modal=makeModal('تفاصيل دورة الرواتب',`<div class="table-wrap"><table><thead><tr><th>الموظف</th><th>الأساسي</th><th>الإجمالي</th><th>الخصومات</th><th>الصافي</th></tr></thead><tbody>${d.results.map(x=>`<tr><td>${esc([x.employee_number,x.first_name,x.family_name].filter(Boolean).join(' '))}</td><td>${Number(x.basic_salary).toFixed(2)}</td><td>${Number(x.gross).toFixed(2)}</td><td>${Number(x.total_deductions).toFixed(2)}</td><td><strong>${Number(x.net).toFixed(2)}</strong></td></tr>`).join('')||'<tr><td colspan="5">لا توجد بنود</td></tr>'}</tbody></table></div>`)}
+async function reports(){const d=await api('/api/reports/overview');$('content').innerHTML=pageHead('التقارير','لوحات وتقارير تشغيلية مبنية على بيانات النظام الفعلية.')+`<div class="grid stat-grid"><div class="card stat"><span>الموظفون النشطون</span><strong>${d.employees}</strong></div><div class="card stat"><span>الوحدات التنظيمية</span><strong>${d.organization}</strong></div><div class="card stat"><span>المعاملات</span><strong>${d.transactions}</strong></div><div class="card stat"><span>دورات الرواتب المفتوحة</span><strong>${d.openPayroll}</strong></div><div class="card stat"><span>المستخدمون النشطون</span><strong>${d.users}</strong></div></div><div class="grid"><div class="card"><h3>تقرير الموظفين</h3><p>الأعداد حسب الحالة والوحدة التنظيمية يمكن استخراجها من سجل الموظفين.</p></div><div class="card"><h3>تقرير المعاملات</h3><p>حصر المعاملات حسب النوع والحالة ومسار العمل.</p></div><div class="card"><h3>تقرير الرواتب</h3><p>الإجمالي والخصومات والصافي لكل دورة رواتب.</p></div></div>`}
+async function companies(){const d=await api('/api/admin/companies');$('content').innerHTML=pageHead('نطاق الشركات','إدارة الشركات وعزل بيانات كل شركة عن الأخرى.','<button id="addCompany">إضافة شركة</button>')+`<div class="info-banner">المستخدم يسجل الدخول ضمن شركة محددة، وكل البيانات التشغيلية في النظام مربوطة بنطاق الشركة.</div><div class="table-wrap"><table><thead><tr><th>المعرف</th><th>اسم الشركة</th><th>الإنجليزية</th><th>الحالة</th><th>تاريخ الإنشاء</th></tr></thead><tbody>${d.results.map(x=>`<tr><td>${esc(x.company_identifier)}</td><td>${esc(x.name_ar)}</td><td>${esc(x.name_en||'-')}</td><td>${x.active?'نشطة':'متوقفة'}</td><td>${esc(x.created_at)}</td></tr>`).join('')}</tbody></table></div>`;$('addCompany').onclick=companyForm}
+function companyForm(){const modal=makeModal('إضافة شركة',`<form id="companyForm" class="form-grid"><label>معرف الشركة<input name="company_identifier" placeholder="COMPANY01" required></label><label>الاسم العربي<input name="name_ar" required></label><label>الاسم الإنجليزي<input name="name_en"></label><button>إنشاء الشركة</button></form>`);$('companyForm').onsubmit=async e=>{e.preventDefault();await api('/api/admin/companies',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});modal.remove();companies()}}
+async function users(){const [u,r]=await Promise.all([api('/api/admin/users'),api('/api/admin/roles')]);$('content').innerHTML=pageHead('المستخدمون','إدارة حسابات الدخول وربطها بالأدوار.',has('users.manage')?'<button id="addUser">إنشاء مستخدم</button>':'')+`<div class="table-wrap"><table><thead><tr><th>المستخدم</th><th>الأدوار</th><th>الحالة</th><th>آخر دخول</th><th>تغيير كلمة المرور</th></tr></thead><tbody>${u.results.map(x=>`<tr><td>${esc(x.user_identifier)}</td><td>${esc(x.roles||'-')}</td><td>${esc(x.account_status)}</td><td>${esc(x.last_login_at||'-')}</td><td>${x.must_change_password?'نعم':'لا'}</td></tr>`).join('')}</tbody></table></div>`;$('addUser').onclick=()=>userForm(r.results)}
+function userForm(roles){const modal=makeModal('إنشاء مستخدم',`<form id="userForm" class="form-grid"><label>رقم المستخدم<input name="user_identifier" required></label><label>كلمة المرور<input name="password" type="password" minlength="8" required></label><label>الدور<select name="role_id">${roles.map(x=>`<option value="${x.id}">${esc(x.name_ar)}</option>`).join('')}</select></label><button>إنشاء الحساب</button></form>`);$('userForm').onsubmit=async e=>{e.preventDefault();await api('/api/admin/users',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});modal.remove();users()}}
+async function roles(){const [r,p]=await Promise.all([api('/api/admin/roles'),api('/api/admin/permissions')]);$('content').innerHTML=pageHead('الأدوار والصلاحيات','الأدوار قابلة للإنشاء بلا حد، والصلاحيات تربط بنطاق واضح.',has('roles.manage')?'<button id="addRole">إضافة دور</button>':'')+`<div class="role-layout"><div class="card"><h3>الأدوار</h3>${r.results.map(x=>`<button class="role-item" data-role="${x.id}"><span>${esc(x.name_ar)}</span><small>${esc(x.code)} · ${x.permission_count} صلاحية</small></button>`).join('')}</div><div class="card" id="roleDetail"><div class="empty">اختر دورًا لعرض الصلاحيات</div></div></div>`;$('addRole').onclick=roleForm;r.results.forEach(x=>document.querySelector(`[data-role="${x.id}"]`).onclick=()=>roleDetail(x.id,r,p))}
+async function roleDetail(id,rolesData,perms){const current=await api('/api/admin/role-permissions?role_id='+encodeURIComponent(id));const currentMap=new Map(current.results.map(x=>[x.permission_id,x]));$('roleDetail').innerHTML=`<h3>${esc(rolesData.find(x=>x.id===id)?.name_ar||'الدور')}</h3><p class="muted">حدد الصلاحية ثم نطاقها. النطاق يحدد أين يمكن للمستخدم تنفيذ الصلاحية.</p><div class="permission-list">${perms.results.map(p=>{const x=currentMap.get(p.id);return `<div class="permission-row"><div><label class="inline"><input type="checkbox" data-perm="${p.id}" ${x?'checked':''}> <span>${esc(p.name_ar)}</span></label><small>${esc(p.code)} · ${esc(p.domain)}</small></div><select data-scope="${p.id}"><option ${x?.scope_type==='COMPANY'?'selected':''}>COMPANY</option><option ${x?.scope_type==='SELF'?'selected':''}>SELF</option><option ${x?.scope_type==='MANAGED_EMPLOYEES'?'selected':''}>MANAGED_EMPLOYEES</option><option ${x?.scope_type==='ORGANIZATION'?'selected':''}>ORGANIZATION</option><option ${x?.scope_type==='ALL'?'selected':''}>ALL</option></select><span class="badge">${x?.scope_type||'غير ممنوحة'}</span></div>`}).join('')}</div>`;perms.results.forEach(p=>{const cb=document.querySelector(`[data-perm="${p.id}"]`),sel=document.querySelector(`[data-scope="${p.id}"]`);cb.onchange=async()=>{if(cb.checked)await api('/api/admin/role-permissions',{method:'POST',body:JSON.stringify({role_id:id,permission_id:p.id,scope_type:sel.value})});else await api('/api/admin/role-permissions/remove',{method:'POST',body:JSON.stringify({role_id:id,permission_id:p.id,scope_type:sel.value})});roleDetail(id,rolesData,perms)};sel.onchange=async()=>{if(cb.checked){if(currentMap.has(p.id))await api('/api/admin/role-permissions/remove',{method:'POST',body:JSON.stringify({role_id:id,permission_id:p.id,scope_type:currentMap.get(p.id).scope_type})});await api('/api/admin/role-permissions',{method:'POST',body:JSON.stringify({role_id:id,permission_id:p.id,scope_type:sel.value})});roleDetail(id,rolesData,perms)}}})}
+function roleForm(){const modal=makeModal('إضافة دور',`<form id="roleForm" class="form-grid"><label>رمز الدور<input name="code" placeholder="hr_manager" required></label><label>اسم الدور<input name="name_ar" placeholder="مدير الموارد البشرية" required></label><button>إنشاء الدور</button></form>`);$('roleForm').onsubmit=async e=>{e.preventDefault();await api('/api/admin/roles',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});modal.remove();roles()}}
+async function settings(){const [s,d]=await Promise.all([api('/api/admin/settings'),api('/api/admin/summary')]);$('content').innerHTML=pageHead('إعدادات النظام','إعدادات الشركة الأساسية وسياسة كلمة المرور والمنطقة الزمنية.')+`<div class="grid"><div class="card stat"><span>الشركات</span><strong>${d.companies}</strong></div><div class="card stat"><span>المستخدمون</span><strong>${d.users}</strong></div><div class="card stat"><span>الأدوار</span><strong>${d.roles}</strong></div><div class="card stat"><span>الصلاحيات</span><strong>${d.permissions}</strong></div></div><div class="card"><form id="settingsForm" class="form-grid"><label>اسم النظام<input name="app_name" value="${esc(s.settings.app_name||'HR Enterprise')}"></label><label>المنطقة الزمنية<input name="timezone" value="${esc(s.settings.timezone||'Asia/Riyadh')}"></label><label>لغة الواجهة<input name="language" value="ar" readonly></label><label>هل يستطيع الموظف إنشاء مستخدم؟<select name="employee_can_create_user"><option value="0" ${s.settings.employee_can_create_user==='0'?'selected':''}>لا</option><option value="1" ${s.settings.employee_can_create_user==='1'?'selected':''}>نعم</option></select></label><button>حفظ الإعدادات</button></form></div><div class="card section"><h3>سياسة الصلاحيات</h3><p>إظهار الوحدات يتم حسب الصلاحيات الفعلية للمستخدم، ولا تظهر شاشة تشغيلية لمستخدم لا يملك صلاحيتها.</p></div>`;$('settingsForm').onsubmit=async e=>{e.preventDefault();await api('/api/admin/settings',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});$('settingsForm').insertAdjacentHTML('afterend','<div class="success-box">تم حفظ الإعدادات</div>')}}
+async function trxTypes(){const d=await api('/api/admin/transactions/types');$('content').innerHTML=pageHead('قائمة المعاملات المنشأة','هذه هي الأنواع التي يعرّفها مسؤول النظام، وتظهر لاحقًا في محاكي المعاملة.',has('transactions.create')?'<button id="addTrxType">إضافة نوع معاملة</button>':'')+`<div class="table-wrap"><table><thead><tr><th>الاسم</th><th>الرمز</th><th>الحالة</th><th>الإعدادات</th></tr></thead><tbody>${d.results.map(x=>`<tr><td>${esc(x.name_ar)}</td><td>${esc(x.code)}</td><td>${x.enabled?'فعال':'متوقف'}</td><td><button class="small-btn" data-config="${x.id}">عرض</button></td></tr>`).join('')||'<tr><td colspan="4">لا توجد أنواع معاملات منشأة</td></tr>'}</tbody></table></div>`;$('addTrxType')?.addEventListener('click',trxTypeForm)}
+function trxTypeForm(){const modal=makeModal('إضافة نوع معاملة',`<form id="ttForm" class="form-grid"><label>اسم المعاملة<input name="name_ar" required></label><label>الرمز<input name="code" required></label><label>وصف النموذج<textarea name="description" rows="3"></textarea></label><button>حفظ</button></form>`);$('ttForm').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));await api('/api/admin/transactions/types',{method:'POST',body:JSON.stringify({name_ar:b.name_ar,code:b.code,config:{description:b.description}})});modal.remove();trxTypes()}}
+async function workflows(){const d=await api('/api/admin/workflows');$('content').innerHTML=pageHead('مسارات العمل','ابنِ مراحل كل مسار بأسماء المنشأة، مع تحديد مالك المرحلة.',has('workflows.manage')?'<button id="addWorkflow">إنشاء مسار</button>':'')+`<div class="table-wrap"><table><thead><tr><th>المسار</th><th>نوع المعاملة</th><th>الإصدار</th><th>عدد المراحل</th></tr></thead><tbody>${d.results.map(x=>`<tr><td>${esc(x.name_ar)}</td><td>${esc(x.transaction_type_name||'-')}</td><td>${x.version}</td><td>${x.stage_count}</td></tr>`).join('')||'<tr><td colspan="4">لا توجد مسارات</td></tr>'}</tbody></table></div>`;$('addWorkflow')?.addEventListener('click',workflowForm)}
+async function workflowForm(){const tt=await api('/api/admin/transactions/types');const modal=makeModal('إنشاء مسار عمل',`<form id="wfForm"><div class="form-grid"><label>اسم المسار<input name="name_ar" required></label><label>نوع المعاملة<select name="transaction_type_id">${tt.results.map(x=>`<option value="${x.id}">${esc(x.name_ar)}</option>`).join('')}</select></label></div><h3>المراحل</h3><div id="stageBox"><div class="stage-line"><input name="stage" placeholder="اسم المرحلة" required><select name="owner"><option value="ROLE">دور</option><option value="USER">مستخدم</option><option value="MANAGER">مدير مباشر</option></select></div></div><button type="button" id="addStage">إضافة مرحلة</button> <button>حفظ المسار</button></form>`);$('addStage').onclick=()=>{const d=document.createElement('div');d.className='stage-line';d.innerHTML='<input name="stage" placeholder="اسم المرحلة" required><select name="owner"><option value="ROLE">دور</option><option value="USER">مستخدم</option><option value="MANAGER">مدير مباشر</option></select>';document.querySelector('#stageBox').appendChild(d)};$('wfForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const names=f.getAll('stage'),owners=f.getAll('owner');await api('/api/admin/workflows',{method:'POST',body:JSON.stringify({name_ar:f.get('name_ar'),transaction_type_id:f.get('transaction_type_id'),stages:names.map((n,i)=>({name_ar:n,owner_type:owners[i]}))})});modal.remove();workflows()}}
+async function audit(){const d=await api('/api/admin/audit');$('content').innerHTML=pageHead('سجل التدقيق','سجل مركزي لتتبع إنشاء وتعديل الصلاحيات والبيانات الحساسة.')+`<div class="table-wrap"><table><thead><tr><th>التاريخ</th><th>المستخدم</th><th>الإجراء</th><th>الكيان</th><th>المعرف</th></tr></thead><tbody>${d.results.map(x=>`<tr><td>${esc(x.created_at)}</td><td>${esc(x.user_identifier||'-')}</td><td>${esc(x.action)}</td><td>${esc(x.entity)}</td><td>${esc(x.record_id||'-')}</td></tr>`).join('')||'<tr><td colspan="5">لا يوجد سجل</td></tr>'}</tbody></table></div>`}
+function makeModal(title,body){const m=document.createElement('div');m.className='modal';m.innerHTML=`<div class="modal-card"><div class="page-head"><h2>${title}</h2><button class="close" type="button">×</button></div>${body}</div>`;document.body.appendChild(m);m.querySelector('.close').onclick=()=>m.remove();return m}
 boot();
