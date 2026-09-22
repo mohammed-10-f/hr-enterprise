@@ -8,5 +8,5 @@ APP_NAME = "HR Enterprise"
 [[d1_databases]]
 binding = "DB"
 database_name = "hr-enterprise"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "43d377a3-8ba3-47ed-adf7-03ec0097ff40"
 migrations_dir = "migrations"
