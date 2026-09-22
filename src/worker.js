@@ -1,6 +1,8 @@
 import { Router } from './router.js';
 import { json } from './lib/http.js';
-import { hashPassword } from './lib/crypto.js';
+import { hashPassword, verifyPassword, isLegacyHash, hashToken } from './lib/crypto.js';
+
+const DEFAULT_TEMP_PASSWORD = 'Mm123456';
 
 const router = new Router();
 
@@ -47,14 +49,18 @@ router.post('/api/auth/login', async ({ request, env }) => {
   if (!tenant) return json({ error:'بيانات الدخول غير صحيحة' },401);
   const user = await env.DB.prepare('SELECT * FROM users WHERE tenant_id=? AND user_identifier=?').bind(tenant.id,userIdentifier).first();
   if (!user || user.account_status!=='ACTIVE') return json({ error:'بيانات الدخول غير صحيحة' },401);
-  if (await hashPassword(password) !== user.password_hash){
+  if (!(await verifyPassword(password, user.password_hash))){
     await env.DB.prepare('INSERT INTO login_logs(tenant_id,user_id,success,ip,user_agent) VALUES(?,?,?,?,?)').bind(tenant.id,user.id,0,request.headers.get('CF-Connecting-IP'),request.headers.get('User-Agent')).run();
     return json({error:'بيانات الدخول غير صحيحة'},401);
+  }
+  // Transparently upgrade any pre-existing plain-SHA256 hash to salted PBKDF2 on successful login.
+  if (isLegacyHash(user.password_hash)){
+    await env.DB.prepare('UPDATE users SET password_hash=? WHERE id=?').bind(await hashPassword(password), user.id).run();
   }
   const rawToken=crypto.randomUUID()+'.'+crypto.randomUUID();
   const sessionId=uid(); const expires=new Date(Date.now()+8*60*60*1000).toISOString();
   await env.DB.batch([
-    env.DB.prepare('INSERT INTO sessions(id,user_id,tenant_id,token_hash,expires_at) VALUES(?,?,?,?,?)').bind(sessionId,user.id,tenant.id,await hashPassword(rawToken),expires),
+    env.DB.prepare('INSERT INTO sessions(id,user_id,tenant_id,token_hash,expires_at) VALUES(?,?,?,?,?)').bind(sessionId,user.id,tenant.id,await hashToken(rawToken),expires),
     env.DB.prepare('UPDATE users SET last_login_at=CURRENT_TIMESTAMP WHERE id=?').bind(user.id),
     env.DB.prepare('INSERT INTO login_logs(tenant_id,user_id,success,ip,user_agent) VALUES(?,?,?,?,?)').bind(tenant.id,user.id,1,request.headers.get('CF-Connecting-IP'),request.headers.get('User-Agent'))
   ]);
@@ -62,6 +68,31 @@ router.post('/api/auth/login', async ({ request, env }) => {
 });
 
 router.post('/api/auth/logout', async ({ auth, env }) => { if(auth) await env.DB.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE id=?').bind(auth.session.id).run(); return ok(); });
+
+router.post('/api/auth/change-password', async ({ auth, env, request }) => {
+  const b = await request.json();
+  const currentPassword = String(b.current_password || '');
+  const newPassword = String(b.new_password || '');
+  if (newPassword.length < 8) return json({ error:'كلمة المرور الجديدة يجب ألا تقل عن 8 أحرف' },400);
+  const user = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(auth.user.id).first();
+  if (!(await verifyPassword(currentPassword, user.password_hash))) return json({ error:'كلمة المرور الحالية غير صحيحة' },401);
+  await env.DB.prepare('UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?').bind(await hashPassword(newPassword), auth.user.id).run();
+  await audit(env, auth, 'UPDATE', 'users', auth.user.id, null, { action:'password_change' });
+  return ok();
+});
+
+router.post('/api/admin/users/status', async ({ auth, env, request }) => {
+  if (!(await requirePermission(auth,env,'users.manage'))) return json({error:'غير مصرح'},403);
+  const b = await request.json();
+  if (!b.user_id || !['ACTIVE','DISABLED'].includes(b.status)) return json({error:'بيانات غير صحيحة'},400);
+  const before = await env.DB.prepare('SELECT account_status FROM users WHERE id=? AND tenant_id=?').bind(b.user_id,auth.tenant.id).first();
+  if (!before) return json({error:'المستخدم غير موجود'},404);
+  await env.DB.prepare('UPDATE users SET account_status=? WHERE id=? AND tenant_id=?').bind(b.status,b.user_id,auth.tenant.id).run();
+  // Disabling login takes effect immediately — revoke any active sessions, not just future logins.
+  if (b.status==='DISABLED') await env.DB.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE user_id=? AND revoked_at IS NULL').bind(b.user_id).run();
+  await audit(env, auth, 'UPDATE', 'users', b.user_id, { account_status: before.account_status }, { account_status: b.status });
+  return ok();
+});
 
 router.get('/api/me', async ({ auth, env }) => {
   const roles=await env.DB.prepare('SELECT r.code,r.name_ar,r.id FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=? AND r.enabled=1').bind(auth.user.id).all();
@@ -193,6 +224,22 @@ router.post('/api/employees', async ({auth,env,request})=>{
     }
     await env.DB.prepare(`INSERT INTO employee_history(tenant_id,employee_id,event_type,event_date,payload_json) VALUES(?,?,?,?,?)`)
       .bind(auth.tenant.id,id,'CREATED',b.join_date,JSON.stringify({source:'employee_creation'})).run();
+
+    // Auto-provision the login account: username is always the ID number, with a forced
+    // temporary password. If an account for this identity already exists (rehire — same
+    // national ID, new employee number), reactivate it instead of creating a duplicate.
+    const tempHash = await hashPassword(DEFAULT_TEMP_PASSWORD);
+    const existingUser = await env.DB.prepare('SELECT id,account_status FROM users WHERE tenant_id=? AND user_identifier=?').bind(auth.tenant.id, b.id_number).first();
+    if (existingUser) {
+      await env.DB.prepare('UPDATE users SET account_status=\'ACTIVE\', must_change_password=1, password_hash=?, employee_id=? WHERE id=?').bind(tempHash, id, existingUser.id).run();
+      await audit(env,auth,'REACTIVATE','users',existingUser.id,{account_status:existingUser.account_status},{account_status:'ACTIVE',employee_id:id});
+    } else {
+      const userId=uid();
+      await env.DB.prepare('INSERT INTO users(id,tenant_id,employee_id,user_identifier,password_hash,account_status,must_change_password) VALUES(?,?,?,?,?,\'ACTIVE\',1)')
+        .bind(userId,auth.tenant.id,id,b.id_number,tempHash).run();
+      await audit(env,auth,'CREATE','users',userId,null,{user_identifier:b.id_number,employee_id:id,source:'employee_creation'});
+    }
+
     await audit(env,auth,'CREATE','employees',id,null,b);
     return ok({id});
   }catch(e){ return json({error:e?.message?.includes('UNIQUE')?'الرقم الوظيفي أو رقم الهوية مستخدم مسبقًا':e?.message||'تعذر إنشاء الموظف'},400); }

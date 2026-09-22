@@ -1,5 +1,5 @@
 
-import { hashPassword } from './crypto.js';
+import { hashToken } from './crypto.js';
 
 export async function authenticate(request, env) {
   const header = request.headers.get('Authorization') || '';
@@ -7,7 +7,7 @@ export async function authenticate(request, env) {
   const raw = header.slice(7).trim();
   if (!raw) return null;
 
-  const tokenHash = await hashPassword(raw);
+  const tokenHash = await hashToken(raw);
   const row = await env.DB.prepare(`
     SELECT s.*, u.user_identifier, u.account_status, u.must_change_password,
            t.company_identifier, t.name_ar tenant_name, t.active tenant_active

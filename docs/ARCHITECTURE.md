@@ -13,7 +13,12 @@
 Authentication, Authorization, Organization, Employee, Workflow, Transactions, Leave, Finance, Payroll, Settlement, Reporting, Notifications, Administration.
 
 ## Security
-Sessions use opaque bearer tokens stored as hashes in D1. Production hardening should add stronger password KDF parameters/secret management, rate limiting at the edge, secure headers, CSRF strategy for cookie-based sessions if adopted, and encrypted object storage for sensitive attachments.
+Sessions use opaque bearer tokens stored as fast unsalted hashes in D1 (appropriate since the
+token itself is high-entropy). Passwords are stored as salted PBKDF2-SHA256 (210k iterations) —
+a deliberately different, slower scheme, since passwords are low-entropy user-chosen secrets
+and tokens are not. Remaining production hardening: rate limiting at the edge, secure headers,
+a CSRF strategy if cookie-based sessions are ever adopted, and encrypted object storage for
+sensitive attachments once file upload/R2 is introduced.
 
 ## D1
 The schema is normalized around domain boundaries and tenant-aware foreign keys. Critical unique constraints are tenant-scoped.
